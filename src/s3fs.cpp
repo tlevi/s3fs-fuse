@@ -156,6 +156,7 @@ static int remove_old_type_dir(const string& path, dirtype type);
 static int get_object_attribute(const char* path, struct stat* pstbuf, headers_t* pmeta = NULL, bool overcheck = true, bool* pisforce = NULL, bool add_no_truncate_cache = false);
 static int check_object_access(const char* path, int mask, struct stat* pstbuf);
 static int check_object_owner(const char* path, struct stat* pstbuf);
+static int check_dir_access_r(const char* path);
 static int check_parent_object_access(const char* path, int mask);
 static FdEntity* get_local_fent(const char* path, bool is_load = false);
 static bool multi_head_callback(S3fsCurl* s3fscurl);
@@ -703,22 +704,17 @@ static int check_parent_object_access(const char* path, int mask)
     // path is mount point.
     return 0;
   }
+
+  parent = mydirname(path);
+
   if(X_OK == (mask & X_OK)){
-    for(parent = mydirname(path); 0 < parent.size(); parent = mydirname(parent)){
-      if(parent == "."){
-        parent = "/";
-      }
-      if(0 != (result = check_object_access(parent.c_str(), X_OK, NULL))){
-        return result;
-      }
-      if(parent == "/" || parent == "."){
-        break;
-      }
+    if (0 != (result = check_dir_access_r(parent.c_str()))){
+      return result;
     }
   }
+
   mask = (mask & ~X_OK);
   if(0 != mask){
-    parent = mydirname(path);
     if(parent == "."){
       parent = "/";
     }
@@ -727,6 +723,25 @@ static int check_parent_object_access(const char* path, int mask)
     }
   }
   return 0;
+}
+
+//
+// Recursively check directory access
+//
+static int check_dir_access_r(const char* path)
+{
+  S3FS_PRN_DBG("[path=%s]", path);
+
+  if(0 == strcmp(path, "/") || 0 == strcmp(path, ".")){
+    // path is mount point.
+    return 0;
+  }
+
+  string parent = mydirname(path);
+  int result = check_dir_access_r(parent.c_str());
+  if (result != 0) return result;
+
+  return check_object_access(path, X_OK, NULL);
 }
 
 //
